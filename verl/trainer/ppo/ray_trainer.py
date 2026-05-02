@@ -823,8 +823,9 @@ class RayPPOTrainer:
         for k, v in success_rate.items():
             metric_dict[f'val/{k}'] = v
 
-        # === Skill Bank 动态更新 ===
-        if self.config.env.get('skills_only_memory', {}).get('enable_dynamic_update', False):
+        # === Skill Bank 动态更新（仅当 update_skills_from_train=False 时从 val 更新）===
+        if (self.config.env.get('skills_only_memory', {}).get('enable_dynamic_update', False)
+                and not self.config.env.get('skills_only_memory', {}).get('update_skills_from_train', False)):
             self._update_skills_from_validation(
                 sample_inputs=sample_inputs,
                 sample_outputs=sample_outputs,
@@ -888,10 +889,13 @@ class RayPPOTrainer:
             return
 
         # 分析失败并生成新 skills
+        # FIX: 原先使用 val_envs 的 skills 作为 current_skills，但新 skill
+        # 实际添加到 train envs，导致 val_envs 中永远看不到 dyn_ skills，
+        # _next_dyn_index() 每次都返回 1，重复生成 dyn_001-003 被去重跳过。
         print(f"[SkillUpdate] Analyzing {len(failed_trajectories)} failed trajectories with o3...")
         new_skills = self.skill_updater.analyze_failures(
             failed_trajectories=failed_trajectories,
-            current_skills=retrieval_memory.skills,
+            current_skills=self.envs.retrieval_memory.skills,
         )
 
         if new_skills:
@@ -916,6 +920,74 @@ class RayPPOTrainer:
             print(f"[SkillUpdate] Saved updated skill bank to {save_path}")
         else:
             print("[SkillUpdate] No new skills generated")
+
+    def _update_skills_from_training(self, batch):
+        """
+        根据 training batch 结果更新 skill bank。
+
+        从训练集的失败轨迹中提取新 skill，避免验证集信息泄露到训练过程中。
+        仅在特定任务类型成功率低于阈值时触发更新。
+        """
+        update_config = self.config.env.skills_only_memory
+        threshold = update_config.get('update_threshold', 0.5)
+
+        success_rate = {}
+        for k in batch.non_tensor_batch.keys():
+            if 'success_rate' in k:
+                success_rate[k] = np.mean(batch.non_tensor_batch[k])
+
+        needs_update = False
+        low_success_tasks = []
+        for task_key, rate in success_rate.items():
+            if rate < threshold:
+                needs_update = True
+                task_type = task_key.replace('_success_rate', '')
+                low_success_tasks.append(task_type)
+
+        if not needs_update:
+            print(f"[SkillUpdate-Train] All task success rates above {threshold}, skipping update")
+            return
+
+        print(f"[SkillUpdate-Train] Low success tasks: {low_success_tasks}, triggering skill update...")
+
+        inputs = self.tokenizer.batch_decode(batch.batch["prompts"], skip_special_tokens=True)
+        outputs = self.tokenizer.batch_decode(batch.batch["responses"], skip_special_tokens=True)
+        scores = batch.batch["token_level_scores"].sum(-1).cpu().tolist()
+
+        failed_trajectories = self._collect_failed_trajectories(inputs, outputs, scores)
+
+        if not failed_trajectories:
+            print("[SkillUpdate-Train] No failed trajectories found")
+            return
+
+        if not hasattr(self, 'skill_updater'):
+            from agent_system.memory.skill_updater import SkillUpdater
+            self.skill_updater = SkillUpdater(
+                max_new_skills_per_update=update_config.get('max_new_skills', 3),
+            )
+
+        if not (hasattr(self, 'envs') and hasattr(self.envs, 'retrieval_memory') and self.envs.retrieval_memory):
+            print("[SkillUpdate-Train] No retrieval_memory found in training envs")
+            return
+
+        retrieval_memory = self.envs.retrieval_memory
+
+        print(f"[SkillUpdate-Train] Analyzing {len(failed_trajectories)} failed trajectories...")
+        new_skills = self.skill_updater.analyze_failures(
+            failed_trajectories=failed_trajectories,
+            current_skills=retrieval_memory.skills,
+        )
+
+        if new_skills:
+            retrieval_memory.add_skills(new_skills, category='general')
+            print(f"[SkillUpdate-Train] Added {len(new_skills)} new skills to training envs")
+
+            save_dir = self.config.trainer.get('default_local_dir', './outputs')
+            save_path = os.path.join(save_dir, f'updated_skills_step{self.global_steps}.json')
+            retrieval_memory.save_skills(save_path)
+            print(f"[SkillUpdate-Train] Saved updated skill bank to {save_path}")
+        else:
+            print("[SkillUpdate-Train] No new skills generated")
 
     def _collect_failed_trajectories(
         self,
@@ -1436,6 +1508,13 @@ class RayPPOTrainer:
                             gigpo_enable_similarity= self.config.algorithm.gigpo.enable_similarity,
                             gigpo_similarity_thresh=self.config.algorithm.gigpo.similarity_thresh,
                         )
+
+                    # === Skill Bank 动态更新（从 train batch 提取 skill，防止 val 数据泄露）===
+                    if (self.config.env.get('skills_only_memory', {}).get('enable_dynamic_update', False)
+                            and self.config.env.get('skills_only_memory', {}).get('update_skills_from_train', False)):
+                        skill_update_freq = self.config.env.get('skills_only_memory', {}).get('skill_update_freq', self.config.trainer.get('test_freq', 5))
+                        if self.global_steps % skill_update_freq == 0:
+                            self._update_skills_from_training(batch)
 
                     # update critic
                     if self.use_critic:
