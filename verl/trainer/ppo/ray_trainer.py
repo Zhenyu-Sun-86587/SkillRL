@@ -823,7 +823,7 @@ class RayPPOTrainer:
         for k, v in success_rate.items():
             metric_dict[f'val/{k}'] = v
 
-        # === Skill Bank 动态更新（仅当 update_skills_from_train=False 时从 val 更新）===
+        # Update skill bank from validation results when train-based update is disabled.
         if (self.config.env.get('skills_only_memory', {}).get('enable_dynamic_update', False)
                 and not self.config.env.get('skills_only_memory', {}).get('update_skills_from_train', False)):
             self._update_skills_from_validation(
@@ -842,21 +842,26 @@ class RayPPOTrainer:
         sample_scores: list,
         success_rate: dict,
     ):
-        """
-        根据 validation 结果更新 skill bank。
+        """Update the skill bank using validation results.
 
-        仅在特定任务类型成功率低于阈值时触发更新。
+        Only triggers when at least one task type's success rate is below the
+        configured threshold. New skills are added to the training env memory
+        only — not to val_envs — to avoid inflating future validation scores
+        with skills specifically tuned to the validation set.
         """
         update_config = self.config.env.skills_only_memory
         threshold = update_config.get('update_threshold', 0.5)
 
-        # 检查是否需要更新（某个任务类型成功率低于阈值）
+        if not success_rate:
+            print("[SkillUpdate] No success_rate metrics found in validation results, skipping update")
+            return
+
         needs_update = False
         low_success_tasks = []
         for task_key, rate in success_rate.items():
             if rate < threshold:
                 needs_update = True
-                # 从 key 提取 task_type (e.g., "pick_and_place_success_rate" -> "pick_and_place")
+                # Strip suffix to get task type, e.g. "pick_and_place_success_rate" -> "pick_and_place"
                 task_type = task_key.replace('_success_rate', '')
                 low_success_tasks.append(task_type)
 
@@ -866,7 +871,6 @@ class RayPPOTrainer:
 
         print(f"[SkillUpdate] Low success tasks: {low_success_tasks}, triggering skill update...")
 
-        # 收集失败 trajectories
         failed_trajectories = self._collect_failed_trajectories(
             sample_inputs, sample_outputs, sample_scores
         )
@@ -875,58 +879,53 @@ class RayPPOTrainer:
             print("[SkillUpdate] No failed trajectories found")
             return
 
-        # 初始化 SkillUpdater (lazy init, 使用 Azure OpenAI o3)
+        # Lazy init SkillUpdater (uses Azure OpenAI o3 under the hood).
         if not hasattr(self, 'skill_updater'):
             from agent_system.memory.skill_updater import SkillUpdater
             self.skill_updater = SkillUpdater(
                 max_new_skills_per_update=update_config.get('max_new_skills', 3),
             )
 
-        # 获取当前 skills
-        retrieval_memory = self.val_envs.retrieval_memory
-        if retrieval_memory is None:
-            print("[SkillUpdate] No retrieval_memory found in val_envs")
+        # Guard: val_envs must expose a retrieval_memory attribute.
+        if not (hasattr(self.val_envs, 'retrieval_memory') and self.val_envs.retrieval_memory is not None):
+            print("[SkillUpdate] No retrieval_memory found in val_envs, skipping update")
             return
 
-        # 分析失败并生成新 skills
-        # FIX: 原先使用 val_envs 的 skills 作为 current_skills，但新 skill
-        # 实际添加到 train envs，导致 val_envs 中永远看不到 dyn_ skills，
-        # _next_dyn_index() 每次都返回 1，重复生成 dyn_001-003 被去重跳过。
-        print(f"[SkillUpdate] Analyzing {len(failed_trajectories)} failed trajectories with o3...")
+        # Guard: training envs must also expose retrieval_memory (used for
+        # current_skills reference and as the write target).
+        # Previously current_skills was read from val_envs, but new skills are
+        # added to train envs, so _next_dyn_index() never saw the dyn_ skills
+        # and kept returning 1, generating duplicate names (dyn_001, dyn_001…)
+        # that were silently dropped by the deduplication logic.
+        if not (hasattr(self, 'envs') and hasattr(self.envs, 'retrieval_memory') and self.envs.retrieval_memory):
+            print("[SkillUpdate] No retrieval_memory found in training envs, cannot determine current skills")
+            return
+
+        print(f"[SkillUpdate] Analyzing {len(failed_trajectories)} failed trajectories...")
         new_skills = self.skill_updater.analyze_failures(
             failed_trajectories=failed_trajectories,
             current_skills=self.envs.retrieval_memory.skills,
         )
 
         if new_skills:
-            # Add to training envs only.
-            # Do NOT add to val_envs here: skills derived from validation
-            # failures must not be fed back into the validation memory of the
-            # same evaluation cycle — that would create a data-leakage loop
-            # where val scores are inflated by skills specifically targeting
-            # the val set.
-            if hasattr(self, 'envs') and hasattr(self.envs, 'retrieval_memory') and self.envs.retrieval_memory:
-                self.envs.retrieval_memory.add_skills(new_skills, category='general')
-                print(f"[SkillUpdate] Added {len(new_skills)} new skills to training envs")
+            # Add to training envs only (see docstring for rationale).
+            self.envs.retrieval_memory.add_skills(new_skills, category='general')
+            print(f"[SkillUpdate] Added {len(new_skills)} new skills to training envs")
 
-            # Save updated skill bank (from training envs) to disk.
-            train_memory = self.envs.retrieval_memory if (
-                hasattr(self, 'envs') and hasattr(self.envs, 'retrieval_memory')
-                and self.envs.retrieval_memory
-            ) else retrieval_memory
             save_dir = self.config.trainer.get('default_local_dir', './outputs')
             save_path = os.path.join(save_dir, f'updated_skills_step{self.global_steps}.json')
-            train_memory.save_skills(save_path)
+            self.envs.retrieval_memory.save_skills(save_path)
             print(f"[SkillUpdate] Saved updated skill bank to {save_path}")
         else:
             print("[SkillUpdate] No new skills generated")
 
     def _update_skills_from_training(self, batch):
-        """
-        根据 training batch 结果更新 skill bank。
+        """Update the skill bank using training batch results.
 
-        从训练集的失败轨迹中提取新 skill，避免验证集信息泄露到训练过程中。
-        仅在特定任务类型成功率低于阈值时触发更新。
+        Extracts failed trajectories from the current training batch to avoid
+        any information leakage from the validation set into the training loop.
+        Only triggers when at least one task type's success rate is below the
+        configured threshold.
         """
         update_config = self.config.env.skills_only_memory
         threshold = update_config.get('update_threshold', 0.5)
@@ -935,6 +934,10 @@ class RayPPOTrainer:
         for k in batch.non_tensor_batch.keys():
             if 'success_rate' in k:
                 success_rate[k] = np.mean(batch.non_tensor_batch[k])
+
+        if not success_rate:
+            print("[SkillUpdate-Train] No success_rate metrics found in training batch, skipping update")
+            return
 
         needs_update = False
         low_success_tasks = []
@@ -952,6 +955,9 @@ class RayPPOTrainer:
 
         inputs = self.tokenizer.batch_decode(batch.batch["prompts"], skip_special_tokens=True)
         outputs = self.tokenizer.batch_decode(batch.batch["responses"], skip_special_tokens=True)
+        if "token_level_scores" not in batch.batch:
+            print("[SkillUpdate-Train] 'token_level_scores' not found in batch, skipping update")
+            return
         scores = batch.batch["token_level_scores"].sum(-1).cpu().tolist()
 
         failed_trajectories = self._collect_failed_trajectories(inputs, outputs, scores)
@@ -995,10 +1001,13 @@ class RayPPOTrainer:
         outputs: list,
         scores: list,
     ) -> list:
-        """收集失败的 trajectories 用于分析"""
+        """Collect failed trajectories for skill analysis.
+
+        Capped at 10 entries to avoid exceeding the skill-updater prompt limit.
+        """
         failed = []
         for inp, out, score in zip(inputs, outputs, scores):
-            if score <= 0:  # 失败的 trajectory
+            if score <= 0:
                 task_type = self._detect_task_type_from_input(inp)
                 task_desc = self._extract_task_description(inp)
                 trajectory = self._parse_conversation_to_steps(inp, out)
@@ -1007,7 +1016,7 @@ class RayPPOTrainer:
                     'trajectory': trajectory,
                     'task_type': task_type,
                 })
-        return failed[:10]  # 限制数量，避免 prompt 过长
+        return failed[:10]
 
     def _extract_task_description(self, inp: str) -> str:
         """Extract the task description from a full conversation prompt."""
@@ -1509,11 +1518,11 @@ class RayPPOTrainer:
                             gigpo_similarity_thresh=self.config.algorithm.gigpo.similarity_thresh,
                         )
 
-                    # === Skill Bank 动态更新（从 train batch 提取 skill，防止 val 数据泄露）===
+                    # Update skill bank from training batch (avoids val-data leakage).
                     if (self.config.env.get('skills_only_memory', {}).get('enable_dynamic_update', False)
                             and self.config.env.get('skills_only_memory', {}).get('update_skills_from_train', False)):
                         skill_update_freq = self.config.env.get('skills_only_memory', {}).get('skill_update_freq', self.config.trainer.get('test_freq', 5))
-                        if self.global_steps % skill_update_freq == 0:
+                        if self.global_steps > 0 and self.global_steps % skill_update_freq == 0:
                             self._update_skills_from_training(batch)
 
                     # update critic
