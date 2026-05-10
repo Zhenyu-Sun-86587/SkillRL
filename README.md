@@ -12,6 +12,7 @@ Bridging the gap between raw experience and policy improvement through automatic
 
 ## 🔥 News
 
+- **[05/10/2026]** Released the code for SFT data generation under `examples/sft_data_generation/`.
 - **[04/03/2026]** Released the SFT dataset on [🤗HF](https://huggingface.co/datasets/Jianwen/SkillRL-SFT-Data)!
 - **[03/02/2026]** Due to an accidental misconfiguration, we lost several hundred GitHub stars. If you previously starred this repo, we'd appreciate a re-star ⭐!
 - **[02/23/2026]** We released all the model checkpoints on HuggingFace! Feel free to use them as warm starts for continued RL training.
@@ -135,7 +136,7 @@ export AZURE_OPENAI_ENDPOINT=""
 The first step of our training pipeline uses the base model to generate memory data. This data serves as the foundation for the agent's initial experiences. The specific prompt used to guide this generation can be found at: `memory_data/prompt/prompt.txt`.
 
 ### Supervised Fine-Tuning (SFT)
-Prior to RL, we perform SFT to endow the model with basic task capabilities and instruction-following alignment. We use [LLaMA-Factory](https://github.com/hiyouga/LlamaFactory) as our framework for the SFT stage. The SFT data was released on [🤗 HF](https://huggingface.co/datasets/Jianwen/SkillRL-SFT-Data) now!
+Prior to RL, we perform SFT to endow the model with basic task capabilities and instruction-following alignment. We use [LLaMA-Factory](https://github.com/hiyouga/LlamaFactory) as our framework for the SFT stage. The SFT data was released on [🤗 HF](https://huggingface.co/datasets/Jianwen/SkillRL-SFT-Data) now! For more details on data generation, please refer to `examples/sft_data_generation/`.
 
 ### RL With SkillBank
 
