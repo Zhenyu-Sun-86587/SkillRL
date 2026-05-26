@@ -1,0 +1,3 @@
+runs/*
+.idea/*
+*.pyc
