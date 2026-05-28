@@ -8,8 +8,9 @@ export RAY_BACKEND_LOG_LEVEL=debug
 export VLLM_LOGGING_LEVEL=DEBUG
 
 # export WANDB_API_KEY=""
-# export MODEL_PATH=""
-export WANDB_NAME="alfworld_grpo_qwen2.5_1.5b_sft_140steps_skills_dynamic"
+MODEL_PATH="/home/sunzhengyu/SkillRL/models/Qwen2.5-3B-Instruct-SkillRL-SFT-valid"
+EMBEDDING_MODEL_PATH="/home/sunzhengyu/SkillRL/models/Qwen3-Embedding-0.6B"
+export WANDB_NAME="alfworld_grpo_qwen2.5_3b_sft_embedding_skills"
 
 num_cpus_per_env_worker=0.1 # The CPU resource allocated for each environment worker. If you want to use less CPU resources, you can decrease this value.
 
@@ -46,7 +47,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.fsdp_config.param_offload=True \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=8 \
-    actor_rollout_ref.rollout.tensor_model_parallel_size=4 \
+    actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
     actor_rollout_ref.rollout.name=$ENGINE \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.5 \
     actor_rollout_ref.rollout.enable_chunked_prefill=True \
@@ -67,16 +68,19 @@ python3 -m verl.trainer.main_ppo \
     env.rollout.n=$group_size \
     env.resources_per_worker.num_cpus=$num_cpus_per_env_worker \
     +env.use_skills_only_memory=True \
-    +env.skills_only_memory.skills_json_path=memory_data/alfworld/claude_style_skills.json \
+    +env.skills_only_memory.skills_json_path=runs/sft_data/alfworld_qwen25_3b_deepseek/skill_bank.json \
+    +env.skills_only_memory.retrieval_mode=embedding \
+    +env.skills_only_memory.embedding_model_path=$EMBEDDING_MODEL_PATH \
     +env.skills_only_memory.top_k=6 \
+    +env.skills_only_memory.task_specific_top_k=5 \
     +env.skills_only_memory.enable_dynamic_update=True \
     +env.skills_only_memory.update_threshold=0.4 \
     +env.skills_only_memory.max_new_skills=3 \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.project_name='verl_agent_alfworld' \
-    trainer.experiment_name='grpo_qwen2.5_7b_skills_dynamic' \
-    trainer.n_gpus_per_node=4 \
+    trainer.experiment_name='grpo_qwen2.5_3b_sft_embedding_skills' \
+    trainer.n_gpus_per_node=2 \
     trainer.nnodes=1 \
     trainer.save_freq=10 \
     trainer.test_freq=5 \
