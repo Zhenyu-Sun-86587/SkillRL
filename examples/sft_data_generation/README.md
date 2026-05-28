@@ -15,7 +15,7 @@ your trajectory dump (txt)
   ▼
 [1] preprocess/    parse + dedupe              → processed_trajectories.json
 [2] skill_memory/  per-traj memories + aggregate → skill_bank.json
-[3] distillation/  o3 reasoning + (ALFWorld) synthetic done step
+[3] distillation/  DeepSeek V4 Pro reasoning + (ALFWorld) synthetic done step
 [4] postprocess/   sharegpt → alpaca pairs + (WebShop) validate
   │
   ▼
@@ -26,7 +26,7 @@ your trajectory dump (txt)
 
 ```bash
 pip install openai
-export OPENAI_API_KEY=...
+export DEEPSEEK_API_KEY=...
 export ROLLOUT_DIR=/path/to/your/rollout/txts
 export WORK_DIR=/path/to/output
 
@@ -166,13 +166,13 @@ sft_data_generation/
 │   ├── parse_search.py
 │   └── dedupe_repetitions.py
 │
-├── skill_memory/      # [2] per-traj memories + aggregate (gpt-4o)
+├── skill_memory/      # [2] per-traj memories + aggregate (DeepSeek V4 Pro)
 │   ├── generate_memory_alfworld.py
 │   ├── generate_memory_webshop.py
 │   ├── generate_memory_search.py
 │   └── aggregate_skills.py
 │
-├── distillation/      # [3] o3 reasoning + (ALFWorld) synthetic done
+├── distillation/      # [3] DeepSeek V4 Pro reasoning + (ALFWorld) synthetic done
 │   ├── skill_retrieval.py
 │   ├── distill_alfworld.py
 │   ├── distill_webshop.py

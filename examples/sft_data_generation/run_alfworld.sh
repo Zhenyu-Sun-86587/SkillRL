@@ -26,20 +26,22 @@ python "${DIR}/preprocess/dedupe_repetitions.py" \
 echo "==> [2/4] Generate per-trajectory skill memories"
 python "${DIR}/skill_memory/generate_memory_alfworld.py" \
   --input_file "${WORK_DIR}/processed_trajectories_cleaned.json" \
-  --output_file "${WORK_DIR}/generated_memories.json"
+  --output_file "${WORK_DIR}/generated_memories.json" \
+  --model "${MEMORY_MODEL:-deepseek-v4-pro}"
 
 echo "==> [2/4] Aggregate memories into a skill bank"
 python "${DIR}/skill_memory/aggregate_skills.py" \
   --input_file "${WORK_DIR}/generated_memories.json" \
   --output_file "${WORK_DIR}/skill_bank.json" \
-  --env alfworld
+  --env alfworld \
+  --model "${AGGREGATE_MODEL:-deepseek-v4-pro}"
 
-echo "==> [3/4] Distill with o3"
+echo "==> [3/4] Distill with DeepSeek V4 Pro"
 python "${DIR}/distillation/distill_alfworld.py" \
   --input_file "${WORK_DIR}/processed_trajectories_cleaned.json" \
   --skill_bank_file "${WORK_DIR}/skill_bank.json" \
   --output_file "${WORK_DIR}/distilled_trajectories.json" \
-  --model "${DISTILL_MODEL:-o3}"
+  --model "${DISTILL_MODEL:-deepseek-v4-pro}"
 
 echo "==> [4/4] Flatten to alpaca pairs"
 python "${DIR}/postprocess/sharegpt_to_pairs.py" \

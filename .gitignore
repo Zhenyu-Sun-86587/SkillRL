@@ -1,3 +1,8 @@
 runs/*
+<<<<<<< HEAD
 .idea/*
 *.pyc
+=======
+__pycache__
+models/*
+>>>>>>> 0cfcf3ae37d8f7c952014aa56df4a538861d671f
