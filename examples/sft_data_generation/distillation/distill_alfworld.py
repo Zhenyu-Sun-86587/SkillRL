@@ -278,7 +278,7 @@ def main():
         help="Aggregated skill bank from 03_skill_memory/aggregate_skills.py",
     )
     parser.add_argument("--output_file", required=True)
-    parser.add_argument("--model", default="o3")
+    parser.add_argument("--model", default="deepseek-v4-pro")
     parser.add_argument("--max_history", type=int, default=5)
     parser.add_argument(
         "--seed", type=int, default=0, help="Seed for sampling admissible actions in done step"
@@ -288,10 +288,14 @@ def main():
     )
     args = parser.parse_args()
 
-    api_key = os.environ.get("OPENAI_API_KEY")
+    api_key = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY")
     if not api_key:
-        raise SystemExit("Set OPENAI_API_KEY in the environment.")
-    client = OpenAI(api_key=api_key)
+        raise SystemExit("Set DEEPSEEK_API_KEY in the environment.")
+    # DeepSeek API 兼容 OpenAI SDK；保留环境变量覆盖，便于临时切回其它兼容端点。
+    client = OpenAI(
+        api_key=api_key,
+        base_url=os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
+    )
 
     rng = random.Random(args.seed)
     skill_bank = load_skill_bank(args.skill_bank_file)

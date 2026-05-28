@@ -171,7 +171,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--input_file", required=True)
     parser.add_argument("--output_file", required=True)
-    parser.add_argument("--model", default="gpt-4o")
+    parser.add_argument("--model", default="deepseek-v4-pro")
     parser.add_argument("--env_name", default="Alfworld")
     parser.add_argument(
         "--all_trajectories",
@@ -180,10 +180,14 @@ def main():
     )
     args = parser.parse_args()
 
-    api_key = os.environ.get("OPENAI_API_KEY")
+    api_key = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY")
     if not api_key:
-        raise SystemExit("Set OPENAI_API_KEY in the environment.")
-    client = OpenAI(api_key=api_key)
+        raise SystemExit("Set DEEPSEEK_API_KEY in the environment.")
+    # DeepSeek API 兼容 OpenAI SDK；保留环境变量覆盖，便于临时切回其它兼容端点。
+    client = OpenAI(
+        api_key=api_key,
+        base_url=os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
+    )
 
     with open(args.input_file, "r", encoding="utf-8") as f:
         entries = json.load(f)
