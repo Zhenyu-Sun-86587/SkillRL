@@ -124,8 +124,9 @@ pip install gym==0.26.2
 
 **API Setup**
 ```
-export AZURE_OPENAI_API_KEY="..."
-export AZURE_OPENAI_ENDPOINT=""
+export DEEPSEEK_API_KEY="..."
+export DEEPSEEK_BASE_URL="https://api.deepseek.com"
+export DEEPSEEK_MODEL="deepseek-v4-pro"
 ```
 
 ---
@@ -165,6 +166,16 @@ Key config flags added by these scripts:
 +env.skills_only_memory.enable_dynamic_update=True
 +env.skills_only_memory.update_threshold=0.4
 +env.skills_only_memory.max_new_skills=3
+```
+
+When `enable_dynamic_update=True`, the trainer asks an external LLM to
+summarize failed trajectories into new SkillBank entries.  This implementation
+uses DeepSeek V4 Pro through the OpenAI-compatible API:
+
+```bash
+export DEEPSEEK_API_KEY="YOUR_DEEPSEEK_KEY"
+export DEEPSEEK_BASE_URL="https://api.deepseek.com"
+export DEEPSEEK_MODEL="deepseek-v4-pro"
 ```
 
 #### Embedding Mode
