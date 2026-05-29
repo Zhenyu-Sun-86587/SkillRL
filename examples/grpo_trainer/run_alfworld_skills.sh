@@ -8,6 +8,9 @@ export RAY_BACKEND_LOG_LEVEL=debug
 export VLLM_LOGGING_LEVEL=DEBUG
 
 # export WANDB_API_KEY=""
+# DeepSeek key should be provided by the shell, not hardcoded in this script.
+export DEEPSEEK_BASE_URL="${DEEPSEEK_BASE_URL:-https://api.deepseek.com}"
+export DEEPSEEK_MODEL="${DEEPSEEK_MODEL:-deepseek-v4-pro}"
 MODEL_PATH="/home/sunzhengyu/SkillRL/models/Qwen2.5-3B-Instruct-SkillRL-SFT-valid"
 EMBEDDING_MODEL_PATH="/home/sunzhengyu/SkillRL/models/Qwen3-Embedding-0.6B"
 export WANDB_NAME="alfworld_grpo_qwen2.5_3b_sft_embedding_skills"

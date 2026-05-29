@@ -898,7 +898,7 @@ class RayPPOTrainer:
             print("[SkillUpdate] No failed trajectories found")
             return
 
-        # Lazy init SkillUpdater (uses Azure OpenAI o3 under the hood).
+        # Lazy init SkillUpdater (uses DeepSeek V4 Pro under the hood).
         if not hasattr(self, 'skill_updater'):
             from agent_system.memory.skill_updater import SkillUpdater
             self.skill_updater = SkillUpdater(

@@ -1,17 +1,21 @@
 """
 LLM-based skill updater that generates new skills from failed trajectories.
-Uses Azure OpenAI o3 model for analysis.
+Uses DeepSeek V4 Pro for analysis.
 
 Required environment variables:
-    AZURE_OPENAI_API_KEY      – Azure OpenAI API key
-    AZURE_OPENAI_ENDPOINT     – Azure OpenAI endpoint URL
-    AZURE_OPENAI_API_VERSION  – API version (default: 2025-01-01-preview)
+    DEEPSEEK_API_KEY      – DeepSeek API key
+
+Optional environment variables:
+    DEEPSEEK_BASE_URL     – DeepSeek OpenAI-compatible endpoint
+                            (default: https://api.deepseek.com)
+    DEEPSEEK_MODEL        – DeepSeek model name
+                            (default: deepseek-v4-pro)
 """
 import json
 import os
 import re
 from typing import List, Dict, Any, Optional
-from openai import AzureOpenAI
+from openai import OpenAI
 
 
 class SkillUpdater:
@@ -21,22 +25,21 @@ class SkillUpdater:
         max_completion_tokens: int = 2048,
     ):
         # Read credentials from environment variables — never hardcode secrets.
-        api_key = os.environ.get("AZURE_OPENAI_API_KEY")
-        endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT")
-        api_version = os.environ.get("AZURE_OPENAI_API_VERSION", "2025-01-01-preview")
+        api_key = os.environ.get("DEEPSEEK_API_KEY")
+        base_url = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+        model = os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-pro")
 
-        if not api_key or not endpoint:
+        if not api_key:
             raise EnvironmentError(
-                "SkillUpdater requires AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT "
-                "environment variables to be set."
+                "SkillUpdater requires DEEPSEEK_API_KEY environment variable to be set."
             )
 
-        self.client = AzureOpenAI(
+        # DeepSeek exposes an OpenAI-compatible Chat Completions API.
+        self.client = OpenAI(
             api_key=api_key,
-            azure_endpoint=endpoint,
-            api_version=api_version,
+            base_url=base_url,
         )
-        self.model = "o3"
+        self.model = model
         self.max_completion_tokens = max_completion_tokens
         self.max_new_skills_per_update = max_new_skills_per_update
         self.update_history = []
@@ -76,7 +79,7 @@ class SkillUpdater:
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[{"role": "user", "content": prompt}],
-                max_completion_tokens=self.max_completion_tokens,
+                max_tokens=self.max_completion_tokens,
             )
             raw_skills = self._parse_skills_response(response.choices[0].message.content)
 
@@ -93,7 +96,7 @@ class SkillUpdater:
             return reassigned[:self.max_new_skills_per_update]
 
         except Exception as e:
-            print(f"[SkillUpdater] Error calling o3: {e}")
+            print(f"[SkillUpdater] Error calling {self.model}: {e}")
             return []
 
     # ------------------------------------------------------------------ #
