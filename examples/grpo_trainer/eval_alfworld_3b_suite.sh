@@ -11,9 +11,10 @@ RUNNER="${ROOT_DIR}/examples/grpo_trainer/run_alfworld_skills.sh"
 ENGINE="${ENGINE:-vllm}"
 
 SEEDS="${SEEDS:-1 2 3}"
-CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-1,5}"
+CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-7,6}"
 N_GPUS="${N_GPUS:-2}"
 TP_SIZE="${TP_SIZE:-2}"
+VAL_KWARGS_N="${VAL_KWARGS_N:-4}"
 
 MODEL_BASE="${MODEL_BASE:-${ROOT_DIR}/models/Qwen2.5-3B-Instruct}"
 MODEL_SFT="${MODEL_SFT:-${ROOT_DIR}/models/Qwen2.5-3B-Instruct-SkillRL-SFT-valid}"
@@ -24,11 +25,12 @@ EMBEDDING_UPDATED_SKILLS="${EMBEDDING_UPDATED_SKILLS:-${EMBEDDING_CKPT_DIR}/upda
 EMBEDDING_ORIGIN_SKILLS="${EMBEDDING_ORIGIN_SKILLS:-${ROOT_DIR}/runs/sft_data/alfworld_qwen25_3b_deepseek/skill_bank.json}"
 
 CLAUDE_CKPT_DIR="${CLAUDE_CKPT_DIR:-${ROOT_DIR}/checkpoints/verl_agent_alfworld/grpo_qwen2.5_3b_sft_claude_style_skills}"
-CLAUDE_STEP="${CLAUDE_STEP:-55}"
+CLAUDE_STEP="${CLAUDE_STEP:-60}"
 CLAUDE_UPDATED_SKILLS="${CLAUDE_UPDATED_SKILLS:-${CLAUDE_CKPT_DIR}/updated_skills_step40.json}"
 CLAUDE_ORIGIN_SKILLS="${CLAUDE_ORIGIN_SKILLS:-${ROOT_DIR}/memory_data/alfworld/claude_style_skills.json}"
 
-OUT_ROOT="${OUT_ROOT:-${ROOT_DIR}/outputs/eval_alfworld_3b_suite/$(date +%Y%m%d_%H%M%S)}"
+EVAL_TAG="${EVAL_TAG:-valn${VAL_KWARGS_N}_3seed_8settings}"
+OUT_ROOT="${OUT_ROOT:-${ROOT_DIR}/outputs/eval_alfworld_3b_suite/${EVAL_TAG}_$(date +%Y%m%d_%H%M%S)}"
 RAY_TMPDIR="${RAY_TMPDIR:-${ROOT_DIR}/ray_tmp}"
 TMPDIR="${TMPDIR:-${RAY_TMPDIR}}"
 STOP_RAY_BETWEEN_RUNS="${STOP_RAY_BETWEEN_RUNS:-1}"
@@ -64,7 +66,7 @@ COMMON_EVAL_OVERRIDES=(
   "actor_rollout_ref.rollout.max_num_seqs=64"
   "actor_rollout_ref.rollout.enforce_eager=True"
   "actor_rollout_ref.rollout.free_cache_engine=True"
-  "actor_rollout_ref.rollout.val_kwargs.n=1"
+  "actor_rollout_ref.rollout.val_kwargs.n=${VAL_KWARGS_N}"
   "env.rollout.n=4"
   "${LOGGER_OVERRIDE}"
 )
@@ -210,6 +212,16 @@ for seed in ${SEEDS}; do
     "True"
 
   run_eval \
+    "embedding-skill-rl-3b-checkpoint-no-skills" \
+    "${seed}" \
+    "${MODEL_SFT}" \
+    "resume_path" \
+    "${EMBEDDING_CKPT_DIR}/global_step_${EMBEDDING_STEP}" \
+    "${EMBEDDING_CKPT_DIR}" \
+    "" \
+    "False"
+
+  run_eval \
     "claude-style-skill-rl-3b-updated-skills" \
     "${seed}" \
     "${MODEL_SFT}" \
@@ -228,6 +240,16 @@ for seed in ${SEEDS}; do
     "${CLAUDE_CKPT_DIR}" \
     "${CLAUDE_ORIGIN_SKILLS}" \
     "True"
+
+  run_eval \
+    "claude-style-skill-rl-3b-checkpoint-no-skills" \
+    "${seed}" \
+    "${MODEL_SFT}" \
+    "resume_path" \
+    "${CLAUDE_CKPT_DIR}/global_step_${CLAUDE_STEP}" \
+    "${CLAUDE_CKPT_DIR}" \
+    "" \
+    "False"
 
 done
 
