@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
-# Run the ALFWorld evaluation matrix for the 3B SkillRL reproduction.
+# Run no-skill ALFWorld evaluations for the 3B SkillRL reproduction.
 # This wrapper is intentionally thin: it delegates all model/env logic to the
-# existing run_alfworld_skills.sh and only varies model, checkpoint, skill bank,
-# and seed.
+# existing run_alfworld_skills.sh and only varies checkpoint and seed.
 
 ROOT_DIR="${ROOT_DIR:-/home/sunzhengyu/SkillRL}"
 RUNNER="${ROOT_DIR}/examples/grpo_trainer/run_alfworld_skills.sh"
@@ -14,22 +13,17 @@ SEEDS="${SEEDS:-1 2 3}"
 CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-7,6}"
 N_GPUS="${N_GPUS:-2}"
 TP_SIZE="${TP_SIZE:-2}"
-VAL_KWARGS_N="${VAL_KWARGS_N:-4}"
+VAL_KWARGS_N="${VAL_KWARGS_N:-1}"
 
-MODEL_BASE="${MODEL_BASE:-${ROOT_DIR}/models/Qwen2.5-3B-Instruct}"
 MODEL_SFT="${MODEL_SFT:-${ROOT_DIR}/models/Qwen2.5-3B-Instruct-SkillRL-SFT-valid}"
 
 EMBEDDING_CKPT_DIR="${EMBEDDING_CKPT_DIR:-${ROOT_DIR}/checkpoints/verl_agent_alfworld/grpo_qwen2.5_3b_sft_embedding_skills}"
 EMBEDDING_STEP="${EMBEDDING_STEP:-60}"
-EMBEDDING_UPDATED_SKILLS="${EMBEDDING_UPDATED_SKILLS:-${EMBEDDING_CKPT_DIR}/updated_skills_step50.json}"
-EMBEDDING_ORIGIN_SKILLS="${EMBEDDING_ORIGIN_SKILLS:-${ROOT_DIR}/runs/sft_data/alfworld_qwen25_3b_deepseek/skill_bank.json}"
 
 CLAUDE_CKPT_DIR="${CLAUDE_CKPT_DIR:-${ROOT_DIR}/checkpoints/verl_agent_alfworld/grpo_qwen2.5_3b_sft_claude_style_skills}"
 CLAUDE_STEP="${CLAUDE_STEP:-60}"
-CLAUDE_UPDATED_SKILLS="${CLAUDE_UPDATED_SKILLS:-${CLAUDE_CKPT_DIR}/updated_skills_step40.json}"
-CLAUDE_ORIGIN_SKILLS="${CLAUDE_ORIGIN_SKILLS:-${ROOT_DIR}/memory_data/alfworld/claude_style_skills.json}"
 
-EVAL_TAG="${EVAL_TAG:-valn${VAL_KWARGS_N}_3seed_8settings}"
+EVAL_TAG="${EVAL_TAG:-valn${VAL_KWARGS_N}_3seed_2_no_skill_settings}"
 OUT_ROOT="${OUT_ROOT:-${ROOT_DIR}/outputs/eval_alfworld_3b_suite/${EVAL_TAG}_$(date +%Y%m%d_%H%M%S)}"
 RAY_TMPDIR="${RAY_TMPDIR:-${ROOT_DIR}/ray_tmp}"
 TMPDIR="${TMPDIR:-${RAY_TMPDIR}}"
@@ -78,8 +72,6 @@ run_eval() {
   local resume_mode="$4"
   local resume_path="$5"
   local checkpoint_dir="$6"
-  local skills_path="$7"
-  local use_skills="$8"
 
   local run_dir="${OUT_ROOT}/${exp_name}/seed_${seed}"
   local log_file="${run_dir}/eval.log"
@@ -95,16 +87,12 @@ run_eval() {
     "trainer.experiment_name=eval_${exp_name}_seed${seed}"
     "trainer.resume_mode=${resume_mode}"
     "trainer.default_local_dir=${checkpoint_dir}"
-    "env.use_skills_only_memory=${use_skills}"
+    "env.use_skills_only_memory=False"
     "env.skills_only_memory.enable_dynamic_update=False"
   )
 
   if [[ "${resume_mode}" == "resume_path" ]]; then
     cmd+=("trainer.resume_from_path=${resume_path}")
-  fi
-
-  if [[ "${use_skills}" == "True" ]]; then
-    cmd+=("env.skills_only_memory.skills_json_path=${skills_path}")
   fi
 
   {
@@ -172,74 +160,12 @@ PY
 
 for seed in ${SEEDS}; do
   run_eval \
-    "base-model-3b" \
-    "${seed}" \
-    "${MODEL_BASE}" \
-    "disable" \
-    "" \
-    "${OUT_ROOT}/_scratch/base-model-3b/seed_${seed}" \
-    "" \
-    "False"
-
-  run_eval \
-    "cold-start-model-3b" \
-    "${seed}" \
-    "${MODEL_SFT}" \
-    "disable" \
-    "" \
-    "${OUT_ROOT}/_scratch/cold-start-model-3b/seed_${seed}" \
-    "" \
-    "False"
-
-  run_eval \
-    "embedding-skill-rl-3b-updated-skills" \
-    "${seed}" \
-    "${MODEL_SFT}" \
-    "resume_path" \
-    "${EMBEDDING_CKPT_DIR}/global_step_${EMBEDDING_STEP}" \
-    "${EMBEDDING_CKPT_DIR}" \
-    "${EMBEDDING_UPDATED_SKILLS}" \
-    "True"
-
-  run_eval \
-    "embedding-skill-rl-3b-without-updated-skills" \
-    "${seed}" \
-    "${MODEL_SFT}" \
-    "resume_path" \
-    "${EMBEDDING_CKPT_DIR}/global_step_${EMBEDDING_STEP}" \
-    "${EMBEDDING_CKPT_DIR}" \
-    "${EMBEDDING_ORIGIN_SKILLS}" \
-    "True"
-
-  run_eval \
     "embedding-skill-rl-3b-checkpoint-no-skills" \
     "${seed}" \
     "${MODEL_SFT}" \
     "resume_path" \
     "${EMBEDDING_CKPT_DIR}/global_step_${EMBEDDING_STEP}" \
-    "${EMBEDDING_CKPT_DIR}" \
-    "" \
-    "False"
-
-  run_eval \
-    "claude-style-skill-rl-3b-updated-skills" \
-    "${seed}" \
-    "${MODEL_SFT}" \
-    "resume_path" \
-    "${CLAUDE_CKPT_DIR}/global_step_${CLAUDE_STEP}" \
-    "${CLAUDE_CKPT_DIR}" \
-    "${CLAUDE_UPDATED_SKILLS}" \
-    "True"
-
-  run_eval \
-    "claude-style-skill-rl-3b-without-updated-skills" \
-    "${seed}" \
-    "${MODEL_SFT}" \
-    "resume_path" \
-    "${CLAUDE_CKPT_DIR}/global_step_${CLAUDE_STEP}" \
-    "${CLAUDE_CKPT_DIR}" \
-    "${CLAUDE_ORIGIN_SKILLS}" \
-    "True"
+    "${EMBEDDING_CKPT_DIR}"
 
   run_eval \
     "claude-style-skill-rl-3b-checkpoint-no-skills" \
@@ -247,9 +173,7 @@ for seed in ${SEEDS}; do
     "${MODEL_SFT}" \
     "resume_path" \
     "${CLAUDE_CKPT_DIR}/global_step_${CLAUDE_STEP}" \
-    "${CLAUDE_CKPT_DIR}" \
-    "" \
-    "False"
+    "${CLAUDE_CKPT_DIR}"
 
 done
 
